@@ -13,7 +13,62 @@ typedef struct chainsaw_Window
 	void *user_data;
 } chainsaw_Window_t;
 
+typedef struct chainsaw_WindowConfig
+{
+
+} chainsaw_WindowConfig_t;
+
+chainsaw_Window_t *chainsaw_WindowCreate(const char *title, const unsigned int width, const unsigned int height, const unsigned int flags);
+void chainsaw_OnWindowMove(chainsaw_Window_t *window, void (*callback)(chainsaw_Window_t *));
+void chainsaw_OnWindowResize(chainsaw_Window_t *window, void (*callback)(chainsaw_Window_t *));
+void chainsaw_OnWindowClose(chainsaw_Window_t *window, void (*callback)(chainsaw_Window_t *));
+
+#ifdef CHAINSAW_X11_IMPLEMENTATION
+#ifndef CHAINSAW_IMPLEMENTATION
+#define CHAINSAW_IMPLEMENTATION
+#endif
+#define CHAINSAW_CHOOSEN_IMPLEMENTATION
+#endif
+
+#ifdef CHAINSAW_WIN32_IMPLEMENTATION
+#ifndef CHAINSAW_IMPLEMENTATION
+#define CHAINSAW_IMPLEMENTATION
+#endif
+#define CHAINSAW_CHOOSEN_IMPLEMENTATION
+#endif
+
+#ifdef CHAINSAW_COCOA_IMPLEMENTATION
+#ifndef CHAINSAW_IMPLEMENTATION
+#define CHAINSAW_IMPLEMENTATION
+#endif
+#define CHAINSAW_CHOOSEN_IMPLEMENTATION
+#endif
+
+#ifdef CHAINSAW_WAYLAND_IMPLEMENTATION
+#ifndef CHAINSAW_IMPLEMENTATION
+#define CHAINSAW_IMPLEMENTATION
+#endif
+#define CHAINSAW_CHOOSEN_IMPLEMENTATION
+#endif
+
+#ifdef CHAINSAW_DISPMANX_IMPLEMENTATION
+#ifndef CHAINSAW_IMPLEMENTATION
+#define CHAINSAW_IMPLEMENTATION
+#endif
+#define CHAINSAW_CHOOSEN_IMPLEMENTATION
+#endif
+
 #ifdef CHAINSAW_IMPLEMENTATION
+#ifndef CHAINSAW_CHOOSEN_IMPLEMENTATION
+#ifdef _WIN32
+#define CHAINSAW_WIN32_IMPLEMENTATION
+#elif defined(__APPLE__)
+#define CHAINSAW_COCOA_IMPLEMENTATION
+#else
+#define CHAINSAW_X11_IMPLEMENTATION
+#endif
+#endif
+
 void chainsaw_OnWindowMove(chainsaw_Window_t *window, void (*callback)(chainsaw_Window_t *))
 {
 	window->OnWindowMove = callback;
@@ -28,8 +83,9 @@ void chainsaw_OnWindowClose(chainsaw_Window_t *window, void (*callback)(chainsaw
 {
 	window->OnWindowClose = callback;
 }
+#endif
 
-#ifdef _WIN32
+#ifdef CHAINSAW_WIN32_IMPLEMENTATION
 #include <Windows.h>
 
 static const char *_chainsaw_WindowClassName = "chainsaw_h_WindowClass";
@@ -289,7 +345,9 @@ unsigned long long chainsaw_Now()
 	QueryPerformanceCounter(&value);
 	return (unsigned long long)value.QuadPart;
 }
-#elif defined(__APPLE__)
+#endif
+
+#ifdef CHAINSAW_COCOA_IMPLEMENTATION
 #import <Foundation/Foundation.h>
 #import <Cocoa/Cocoa.h>
 
@@ -372,7 +430,9 @@ unsigned long long chainsaw_Now()
 void chainsaw_WindowResize(chainsaw_Window_t *window, unsigned int width, unsigned int height)
 {
 }
-#else
+#endif
+
+#ifdef CHAINSAW_X11_IMPLEMENTATION
 // fallback to GLX
 #include <X11/Xlib.h>
 #include <GL/glx.h>
@@ -463,7 +523,7 @@ void chainsaw_WindowClose(chainsaw_Window_t *window)
 
 unsigned long long chainsaw_Now()
 {
-	timespec ts;
+	struct timespec ts;
 	clock_gettime(CLOCK_MONOTONIC, &ts);
 	unsigned long long now = ts.tv_sec * 1000000000;
 	now += (unsigned long long)ts.tv_nsec;
@@ -475,4 +535,102 @@ void chainsaw_WindowResize(chainsaw_Window_t *window, unsigned int width, unsign
 }
 
 #endif
+
+#ifdef CHAINSAW_WAYLAND_IMPLEMENTATION
+#include <wayland-client.h>
+#include <wayland-egl.h>
+chainsaw_Window_t *chainsaw_WindowCreate(const char *title, const unsigned int width, const unsigned int height, const unsigned int flags)
+{
+	struct wl_display *display = wl_display_connect(NULL);
+
+	Window root = DefaultRootWindow(display);
+
+	const int attribs[] = {
+		GLX_RGBA, 1,
+		GLX_DOUBLEBUFFER, 1,
+		GLX_RED_SIZE, 8,
+		GLX_GREEN_SIZE, 8,
+		GLX_BLUE_SIZE, 8,
+		GLX_ALPHA_SIZE, 8,
+		GLX_DEPTH_SIZE, 24,
+		GLX_STENCIL_SIZE, 8,
+		0};
+
+	XVisualInfo *vi = glXChooseVisual(display, DefaultScreen(display), (int *)attribs);
+
+	Colormap color_map = XCreateColormap(display, root, vi->visual, AllocNone);
+
+	XSetWindowAttributes xattr;
+	memset(&xattr, 0, sizeof(XSetWindowAttributes));
+	xattr.colormap = color_map;
+	xattr.event_mask = ResizeRedirectMask;
+
+	Window window_handle = XCreateWindow(display, root, 0, 0, width, height, 0, vi->depth, InputOutput, vi->visual, CWColormap | CWEventMask, &xattr);
+
+	XMapWindow(display, window_handle);
+
+	XStoreName(display, window_handle, title);
+
+	GLXContext context = glXCreateContext(display, vi, NULL, GL_TRUE);
+	glXMakeCurrent(display, window_handle, context);
+
+	chainsaw_Window_t *window = (chainsaw_Window_t *)malloc(sizeof(chainsaw_Window_t));
+	if (!window)
+	{
+		return NULL;
+	}
+
+	window->handle = (void *)window_handle;
+	window->device = display;
+}
+
+void chainsaw_WindowHide(chainsaw_Window_t *window)
+{
+}
+
+void chainsaw_WindowDequeueEvents(chainsaw_Window_t *window)
+{
+}
+
+void chainsaw_WindowSwapBuffers(chainsaw_Window_t *window, int interval)
+{
+	glXSwapBuffers((Display *)window->device, (GLXDrawable)window->handle);
+}
+
+void chainsaw_WindowMove(chainsaw_Window_t *window, unsigned int x, unsigned int y)
+{
+}
+
+void chainsaw_WindowShow(chainsaw_Window_t *window)
+{
+}
+
+unsigned int chainsaw_WindowGetWidth(const chainsaw_Window_t *window)
+{
+	return 0;
+}
+
+unsigned int chainsaw_WindowGetHeight(const chainsaw_Window_t *window)
+{
+	return 0;
+}
+
+void chainsaw_WindowClose(chainsaw_Window_t *window)
+{
+	free(window);
+}
+
+unsigned long long chainsaw_Now()
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	unsigned long long now = ts.tv_sec * 1000000000;
+	now += (unsigned long long)ts.tv_nsec;
+	return now;
+}
+
+void chainsaw_WindowResize(chainsaw_Window_t *window, unsigned int width, unsigned int height)
+{
+}
 #endif
+
